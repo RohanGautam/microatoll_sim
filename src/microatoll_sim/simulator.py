@@ -1,0 +1,299 @@
+# %%
+import numpy as np
+from numba import njit, prange
+
+
+@njit
+def lowest_discreet(sl_df_arr, dx, Xmin, Xmax):
+    Nx = round((Xmax - Xmin) / dx)
+    Dout = np.zeros((Nx, 2))
+    for i in range(Nx):
+        Dout[i, 0] = Xmin + i * dx
+        p0 = Dout[i, 0] - dx / 2
+        p1 = Dout[i, 0] + dx / 2
+
+        if p0 < sl_df_arr[0, 0]:
+            Dout[i, 1] = sl_df_arr[0, 1]
+            continue
+        if p1 > sl_df_arr[-1, 0]:
+            Dout[i, 1] = sl_df_arr[-1, 1]
+            continue
+
+        mn = np.inf
+        for j in range(len(sl_df_arr)):
+            if p0 < sl_df_arr[j, 0] < p1 and sl_df_arr[j, 1] < mn:
+                mn = sl_df_arr[j, 1]
+
+        if mn == np.inf:
+            Ip = len(sl_df_arr)
+            for j in range(len(sl_df_arr)):
+                if Dout[i, 0] < sl_df_arr[j, 0]:
+                    Ip = j
+                    break
+            a = (Dout[i, 0] - sl_df_arr[Ip - 1, 0]) / (
+                sl_df_arr[Ip, 0] - sl_df_arr[Ip - 1, 0]
+            )
+            mn = sl_df_arr[Ip - 1, 1] * (1 - a) + sl_df_arr[Ip, 1] * a
+
+        Dout[i, 1] = mn
+
+    # return pd.DataFrame(Dout, columns=list(sl_df_arr.columns))
+    return Dout
+
+
+@njit
+def arc(radius, Np):
+    theta = np.linspace(0, np.pi / 2, Np)
+    return radius * np.vstack((np.sin(theta), np.cos(theta))).T
+
+
+@njit
+def get_pointwise_unit_normals(line):
+    """Get per-point normals for a line. Tangents estimated for a point using it's left and right neighbours. For extreme points, just one of it's neighbours are used. The tangents are then rotated to get the normals."""
+    # finite differences but considering both neighbours of a point
+    linelen = line.shape[0]
+    normals = np.zeros_like(line)
+    for i in range(linelen):
+        if i == 0:
+            tx, ty = line[1, 0] - line[0, 0], line[1, 1] - line[0, 1]
+        elif i == linelen - 1:
+            tx, ty = line[-1, 0] - line[-2, 0], line[-1, 1] - line[-2, 1]
+        else:
+            tx, ty = line[i + 1, 0] - line[i - 1, 0], line[i + 1, 1] - line[i - 1, 1]
+        length = np.sqrt(tx**2 + ty**2)
+        normals[i, 0] = -ty / length
+        normals[i, 1] = tx / length
+    return normals
+
+
+@njit
+def ccw(A, B, C):
+    """Check if points A, B, C are listed in counterclockwise order"""
+    return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+
+@njit
+def check_cross(A, B, C, D):
+    """Check if line segments AB and CD intersect"""
+    return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+
+@njit
+def kill_loop(line, living_status, gr):
+    linelen = line.shape[0]
+    for i in range(linelen - 1):
+        if living_status[i] == 1:
+            # Check for crossing with previous segments
+            for j in range(i - 2, -1, -1):
+                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
+                    living_status[i:j:-1] = 0
+                    break
+            # Check for crossing with next segments
+            for j in range(i + 2, linelen - 1):
+                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
+                    living_status[i:j] = 0
+                    break
+
+    normals = get_pointwise_unit_normals(line)
+    line += normals * gr * living_status[:, np.newaxis]
+    # Kill the parts where x coordinate is less than 0
+    line[:, 0][line[:, 0] < 0] = 0
+    living_status[line[:, 0] < 0] = 0
+
+    return line, living_status
+
+
+@njit(parallel=True)
+def kill_loop2(line, living_status, gr):
+    linelen = line.shape[0]
+    for i in prange(linelen - 1):
+        if living_status[i] == 1:
+            # Check for crossing with previous segments
+            for j in range(i - 2, -1, -1):
+                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
+                    living_status[i:j:-1] = 0
+                    break
+            # Check for crossing with next segments
+            for j in range(i + 2, linelen - 1):
+                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
+                    living_status[i:j] = 0
+                    break
+    normals = get_pointwise_unit_normals(line)
+    # array broadcasting like this does not work in parallel=true
+    # for i in range(len(line)):
+    #     line[i] += normals[i] * gr * living_status[i]
+    line[:, 0] += normals[:, 0] * gr * living_status
+    line[:, 1] += normals[:, 1] * gr * living_status
+    # Kill the parts where x coordinate is less than 0
+    less_zero = line[:, 0] < 0
+    line[:, 0][less_zero] = 0
+    living_status[less_zero] = 0
+
+    return line, living_status
+
+
+@njit
+def resample(line, living_status, d):
+    # Calculate cumulative sum of inter-point euclidean distances
+    # deltas = np.diff(line, axis=0)
+    deltas = line[1:, :] - line[:-1, :]
+    distances = np.zeros(len(line))
+    distances[1:] = np.sqrt(np.sum(deltas**2, axis=1))
+    distances = np.cumsum(distances)
+
+    # Calculate half distances for living status interpolation
+    distances_half = np.zeros(len(line))
+    distances_half[1:] = (distances[:-1] + distances[1:]) / 2
+
+    # Number of points in the resampled line
+    resampled_num_pts = int(np.floor(distances[-1] / d)) + 2
+    resampled_line = np.zeros((resampled_num_pts, 2))
+    resampled_line[0, :] = line[0, :]
+    resampled_line[-1, :] = line[-1, :]
+    new_living_status = np.zeros(resampled_num_pts)
+    new_living_status[0] = living_status[0]
+    new_living_status[-1] = living_status[-1]
+
+    curr_vertex = 0
+    living_status_vertex = 0
+    for i in range(1, resampled_num_pts - 1):
+        dsum = d * i
+
+        while curr_vertex < len(distances) and dsum > distances[curr_vertex]:
+            curr_vertex += 1
+
+        a = (dsum - distances[curr_vertex - 1]) / (
+            distances[curr_vertex] - distances[curr_vertex - 1]
+        )
+        p1, p2 = line[curr_vertex - 1, :], line[curr_vertex, :]
+        resampled_line[i, 0] = p1[0] * (1 - a) + p2[0] * a
+        resampled_line[i, 1] = p1[1] * (1 - a) + p2[1] * a
+
+        # Update living status based on half distances
+        while (
+            living_status_vertex < len(distances_half)
+            and dsum > distances_half[living_status_vertex]
+        ):
+            living_status_vertex += 1
+
+        new_living_status[i] = living_status[living_status_vertex - 1]
+
+    return resampled_line, new_living_status
+
+
+@njit(cache=True)
+def coral_growth_all(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
+    # Initialize line and living status
+    init_line, init_living_status = resample(
+        arc(init_radius, num_initial_pts), np.ones(num_initial_pts), d
+    )
+    lines = [init_line]
+    living_statuses = [init_living_status]
+
+    for it in range(NT):
+        cur_line = lines[-1]
+        cur_living_status = living_statuses[-1]
+        # Update living status
+        present_sea_level = sl_arr[it]
+        cur_living_status[cur_line[:, 1] > present_sea_level] = 0
+        # Grow
+        new_line, new_living_status = kill_loop(cur_line, cur_living_status, gr_vec[it])
+
+        # Ensure first x coord and last y coord are zero
+        new_line[0, 0] = 0
+        new_line[-1, 1] = 0
+        # Resample
+        new_line, new_living_status = resample(new_line, new_living_status, d)
+        # Store history
+        lines.append(new_line)
+        living_statuses.append(new_living_status)
+
+    return lines, living_statuses
+
+
+@njit(cache=True)
+def coral_growth(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
+    # Initialize line and living status
+    init_line, init_living_status = resample(
+        arc(init_radius, num_initial_pts), np.ones(num_initial_pts), d
+    )
+    cur_line = init_line
+    cur_living_status = init_living_status
+
+    for it in range(NT):
+        # Update living status
+        present_sea_level = sl_arr[it]
+        cur_living_status[cur_line[:, 1] > present_sea_level] = 0
+        # Grow
+        new_line, new_living_status = kill_loop(cur_line, cur_living_status, gr_vec[it])
+
+        # Ensure first x coord and last y coord are zero
+        new_line[0, 0] = 0
+        new_line[-1, 1] = 0
+        # Resample
+        new_line, new_living_status = resample(new_line, new_living_status, d)
+        # Update previous line
+        cur_line = new_line
+        cur_living_status = new_living_status
+
+    return cur_line, cur_living_status
+
+
+# %%
+if __name__ == "__main__":
+    import time
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    radius = 0.30
+    d = 1.0
+    gr = 15
+    dt = 0.1
+    Tmax = 30
+    T0 = 1980
+    vert_shift = 0.4
+    # x0 = 0.2
+    # x1 = 0.5
+    # dx = 0.005
+    num_initial_pts = 200
+
+    ## post processing
+    Tmax *= 1.00001
+    d = d / 1e3
+    gr = (gr / 1e3) * dt
+    NT = int(Tmax / dt)
+    # Nx = int((x1 - x0) / dx) + 1
+
+    sl_df = pd.read_csv("./data/SeaLevel.csv", header=None, names=["time", "sl"])
+    sl_arr = sl_df.to_numpy()
+    sl_arr[:, 1] += vert_shift
+    band_sl_arr = lowest_discreet(sl_arr, dt, T0, T0 + Tmax)
+
+    gr_vec = np.ones(NT) * gr
+    s = time.time()
+    lines, living_statuses = coral_growth(
+        radius, num_initial_pts, d, gr_vec, NT, band_sl_arr[:, 1]
+    )
+    print(f"{time.time()-s}s taken 1")
+
+    s = time.time()
+    lines, living_statuses = coral_growth(
+        radius, num_initial_pts, d, gr_vec, NT, band_sl_arr[:, 1]
+    )
+    print(f"{time.time()-s}s taken 2")
+
+    # plt.plot(lines[-1][:, 0], lines[-1][:, 1], lw=1)
+    # plt.plot(lines[-20][:, 0], lines[-20][:, 1], lw=1)
+    plt.plot(lines[:, 0], lines[:, 1], lw=1)
+    plt.gca().set_aspect(1)
+    plt.show()
+
+
+# %%
+## TESTS (ipython)
+# %timeit lowest_discreet(sl_arr, dt, T0, T0 + Tmax)
+# %timeit resample(lines, living_statuses,d)
+# %timeit kill_loop(lines, living_statuses,gr) # slowest
+# %timeit get_pointwise_unit_normals(lines)
+
+# %%
