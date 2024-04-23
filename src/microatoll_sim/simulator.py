@@ -103,35 +103,6 @@ def kill_loop(line, living_status, gr):
     return line, living_status
 
 
-@njit(parallel=True)
-def kill_loop2(line, living_status, gr):
-    linelen = line.shape[0]
-    for i in prange(linelen - 1):
-        if living_status[i] == 1:
-            # Check for crossing with previous segments
-            for j in range(i - 2, -1, -1):
-                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
-                    living_status[i:j:-1] = 0
-                    break
-            # Check for crossing with next segments
-            for j in range(i + 2, linelen - 1):
-                if check_cross(line[i, :], line[i + 1, :], line[j, :], line[j + 1, :]):
-                    living_status[i:j] = 0
-                    break
-    normals = get_pointwise_unit_normals(line)
-    # array broadcasting like this does not work in parallel=true
-    # for i in range(len(line)):
-    #     line[i] += normals[i] * gr * living_status[i]
-    line[:, 0] += normals[:, 0] * gr * living_status
-    line[:, 1] += normals[:, 1] * gr * living_status
-    # Kill the parts where x coordinate is less than 0
-    less_zero = line[:, 0] < 0
-    line[:, 0][less_zero] = 0
-    living_status[less_zero] = 0
-
-    return line, living_status
-
-
 @njit
 def resample(line, living_status, d):
     # Calculate cumulative sum of inter-point euclidean distances
