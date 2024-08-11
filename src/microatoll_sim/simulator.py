@@ -1,6 +1,38 @@
 # %%
 import numpy as np
 from numba import njit
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SimParams:
+    """
+    Contains the parameters used to control the coral growth simulation.
+    - `vert_shift`: (units: m) Added to the provided sea level curve, to simulate the coral being present higher/lower on the reef
+    - `gr_mean`: (units: mm/yr) The growth rate, how thick the coral grows per year
+    - `d` : (units: mm) Controls how finely the new coral band should be resampled. Represents the arc-length distance between resampled points.
+    - `dt`: (units: year) 1/dt is how many bands grow in a year. This controls the resolution of the bands. It can be made very fine for more precise simulation.
+    - `T0`: (unit: year) When in the sea level time series to start the simulation
+    - `delta_T`: (unit: years) Time period for coral growth simulation
+    - `init_radius`: (unit: m) Initial radius of the coral, from which the simulation starts
+    - `num_initial_points`: Sampling frequency for initial coral geometry
+    """
+
+    vert_shift: float  # m
+    gr_mean: float  # mm/yr
+    d: float  # mm
+    dt: float  # year
+    T0: int  # year
+    delta_T: int  # years
+    init_radius: float  # m
+    num_initial_pts = 500
+    NT: int = field(init=False)
+
+    def __post_init__(self):
+        self.delta_T *= 1.00001
+        self.d = self.d / 1e3
+        self.gr_mean = (self.gr_mean / 1e3) * self.dt
+        self.NT = int(self.delta_T / self.dt)
 
 
 @njit
@@ -180,31 +212,3 @@ def coral_growth_all(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
         living_statuses.append(new_living_status)
 
     return lines, living_statuses
-
-
-@njit(cache=True)
-def coral_growth(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
-    # Initialize line and living status
-    init_line, init_living_status = resample(
-        arc(init_radius, num_initial_pts), np.ones(num_initial_pts), d
-    )
-    cur_line = init_line
-    cur_living_status = init_living_status
-
-    for it in range(NT):
-        # Update living status
-        present_sea_level = sl_arr[it]
-        cur_living_status[cur_line[:, 1] > present_sea_level] = 0
-        # Grow
-        new_line, new_living_status = kill_loop(cur_line, cur_living_status, gr_vec[it])
-
-        # Ensure first x coord and last y coord are zero
-        new_line[0, 0] = 0
-        new_line[-1, 1] = 0
-        # Resample
-        new_line, new_living_status = resample(new_line, new_living_status, d)
-        # Update previous line
-        cur_line = new_line
-        cur_living_status = new_living_status
-
-    return cur_line, cur_living_status
