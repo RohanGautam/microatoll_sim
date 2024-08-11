@@ -29,7 +29,7 @@ def plot_arc_segment(Ox, Oy, R, theta1, theta2):
         # Label the plot
         plt.xlabel("X")
         plt.ylabel("Y")
-        plt.title("Aalytical approximation")
+        plt.title("Analytical approximation")
 
 
 @njit
