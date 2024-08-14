@@ -184,6 +184,19 @@ def resample(line, living_status, d):
     return resampled_line, new_living_status
 
 
+@njit
+def get_hlg(line, living_status):
+    hlg = -np.inf
+    for i in range(len(living_status)):
+        # if its fully dead, will be all zeros, and hlg wil be -inf/None
+        if (living_status[i] == 1) and (line[i, 1] > hlg):
+            hlg = line[i, 1]
+    if hlg == -np.inf:
+        return None
+    else:
+        return hlg
+
+
 @njit(cache=True)
 def coral_growth_all(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
     # Initialize line and living status
@@ -192,6 +205,7 @@ def coral_growth_all(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
     )
     lines = [init_line]
     living_statuses = [init_living_status]
+    hlg_curve = []
 
     for it in range(NT):
         cur_line = lines[-1]
@@ -207,6 +221,18 @@ def coral_growth_all(init_radius, num_initial_pts, d, gr_vec, NT, sl_arr):
         new_line[-1, 1] = 0
         # Resample
         new_line, new_living_status = resample(new_line, new_living_status, d)
+
+        hlg = get_hlg(new_line, new_living_status)
+        # if hlg is none, that means that all living parts are zero, aka the coral is fully dead.
+        # therefore, it cannot happen in the middle, there will not be any nones in the middle of the sequence
+        if hlg is None:
+            # use the last hlg as proxy
+            if len(hlg_curve) > 0:
+                hlg_curve.append(hlg_curve[-1])
+            else:
+                raise Exception()
+        else:
+            hlg_curve.append(hlg)
         # Store history
         lines.append(new_line)
         living_statuses.append(new_living_status)
