@@ -175,7 +175,7 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
 
     # Renew surface trace
     Isf = Jsf
-    if(I>1 and Isf == 0):
+    if(temp == 0):
         Sfc[Isf,:] = Arcs[3,I,:]
     else:
         Sfc[Isf,3] = phi2
