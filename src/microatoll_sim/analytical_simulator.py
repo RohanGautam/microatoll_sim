@@ -32,7 +32,7 @@ def plot_arc_segment(Ox, Oy, R, theta1, theta2):
         plt.title("Analytical approximation")
 
 
-# @njit
+@njit
 def EndPoint(Arcs, PT, GEN):
     # Get Coordinate of Endpoints
     # GEN: generation
@@ -45,7 +45,7 @@ def EndPoint(Arcs, PT, GEN):
     return P
 
 
-# @njit
+@njit
 def FindC(P1, P2, V):
     # Get Parameters of MF
     M = np.zeros(2)  # Midpoint of the endpoints
@@ -61,7 +61,7 @@ def FindC(P1, P2, V):
     return O, R
 
 
-# @njit
+@njit
 def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
     I = gen_current
     Isf = sfc_current
@@ -175,12 +175,12 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
 
     # Renew surface trace
     Isf = Jsf
-    if(temp == 0):
-        Sfc[Isf,:] = Arcs[3,I,:]
+    if temp == 0:
+        Sfc[Isf, :] = Arcs[3, I, :]
     else:
-        Sfc[Isf,3] = phi2
-        Isf = Isf+1
-        Sfc[Isf,:] = Arcs[3,I,:]
+        Sfc[Isf, 3] = phi2
+        Isf = Isf + 1
+        Sfc[Isf, :] = Arcs[3, I, :]
 
     for j in range(2, -1, -1):
         Isf = Isf + 1
@@ -192,7 +192,7 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
     return Isf, Arcs, DD, Sfc
 
 
-# @njit
+@njit(error_model="numpy")
 def growth(Nc, gr, Isf, SLin, Arcs, DD, Sfc):
     for i in range(1, Nc):
         Isf, Arcs, DD, Sfc = growth_Arc(gr, i, Isf, SLin, Arcs, DD, Sfc)
