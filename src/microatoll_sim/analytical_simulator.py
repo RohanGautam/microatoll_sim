@@ -112,7 +112,7 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
     Vp = V
     temp = 0
     Grv = np.zeros(2)
-    for j in range(Isf, 0, -1):
+    for j in range(Isf, -1, -1):
         L = Sfc[j, 2] * (Sfc[j, 4] - Sfc[j, 3])
         if L > Vp:
             temp = 1
@@ -181,7 +181,7 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
     Isf = Isf + 1
     Sfc[Isf, :] = Arcs[3, I, :]
 
-    for j in range(2, 0, -1):
+    for j in range(2, -1, -1):
         Isf = Isf + 1
         Sfc[Isf, :] = Arcs[j, I, :]
         if j == DD[I, 2]:
