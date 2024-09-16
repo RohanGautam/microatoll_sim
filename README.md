@@ -25,4 +25,7 @@ import microatoll_sim.simulator as sim
 sim.coral_growth(...)
 ```
 
-For a simple example as well as function benchmarks, check out `examples/example.ipynb`.
+## Examples
+
+- For execution examples, check out `examples/example.ipynb`.
+- For benchmarks, check out `examples/benchmarks.ipynb`.
