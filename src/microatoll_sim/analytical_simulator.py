@@ -175,16 +175,17 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
 
     # Renew surface trace
     Isf = Jsf
-    if Isf != 0:
-        Sfc[Isf, 3] = phi2
-
-    Isf = Isf + 1
-    Sfc[Isf, :] = Arcs[3, I, :]
+    if(I>1 and Isf == 0):
+        Sfc[Isf,:] = Arcs[3,I,:]
+    else:
+        Sfc[Isf,3] = phi2
+        Isf = Isf+1
+        Sfc[Isf,:] = Arcs[3,I,:]
 
     for j in range(2, -1, -1):
         Isf = Isf + 1
         Sfc[Isf, :] = Arcs[j, I, :]
-        if j == DD[I, 2]:
+        if j == DD[I, 3]:
             break
     Sfc[Isf, 3] = DD[I, 2]
 
