@@ -196,6 +196,7 @@ def growth_Arc(gr, gen_current, sfc_current, SL, Arcs, DD, Sfc):
 def growth(Nc, gr, Isf, SLin, Arcs, DD, Sfc):
     for i in range(1, Nc):
         Isf, Arcs, DD, Sfc = growth_Arc(gr, i, Isf, SLin, Arcs, DD, Sfc)
+    return Isf, Arcs, DD, Sfc
 
 
 # for j in range(0, Nc):
